@@ -1,0 +1,1 @@
+cmd_/media/sf_Shared/linux_backdoor/Module.symvers := sed 's/ko$$/o/' /media/sf_Shared/linux_backdoor/modules.order | scripts/mod/modpost -m -a  -o /media/sf_Shared/linux_backdoor/Module.symvers -e -i Module.symvers   -T -

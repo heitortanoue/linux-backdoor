@@ -7,7 +7,7 @@
 #include <linux/in.h>
 #include <linux/inet.h>
 
-#define SERVER_IP "192.168.0.23"
+#define SERVER_IP "192.168.0.18"
 #define SERVER_PORT 8888
 
 MODULE_LICENSE("GPL");

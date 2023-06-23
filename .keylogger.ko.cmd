@@ -1,1 +1,0 @@
-cmd_/media/sf_Shared/linux_backdoor/keylogger.ko := ld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /media/sf_Shared/linux_backdoor/keylogger.ko /media/sf_Shared/linux_backdoor/keylogger.o /media/sf_Shared/linux_backdoor/keylogger.mod.o;  true

@@ -1,76 +1,100 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/net.h>
+#include <linux/socket.h>
+#include <net/sock.h>
+#include <linux/inet.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
-#define SERVER_PORT 12345
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Seu nome");
+MODULE_DESCRIPTION("Módulo de kernel para capturar e enviar print da tela via socket");
 
-int main() {
-    // Criando o socket do servidor
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1) {
-        perror("Erro ao criar o socket");
-        exit(1);
-    }
+#define SCREEN_WIDTH  1920
+#define SCREEN_HEIGHT 1080
+#define BUFFER_SIZE   (SCREEN_WIDTH * SCREEN_HEIGHT * 4)
+#define PORT 8888
 
-    struct sockaddr_in serverAddr, clientAddr;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(SERVER_PORT);
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+static struct socket *sock = NULL;
 
-    if (bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
-        perror("Erro ao realizar o bind");
-        exit(1);
-    }
-
-    if (listen(sockfd, 1) == -1) {
-        perror("Erro ao aguardar conexões");
-        exit(1);
-    }
-
-    socklen_t clientAddrLen = sizeof(clientAddr);
-    int clientSockfd = accept(sockfd, (struct sockaddr*)&clientAddr, &clientAddrLen);
-    if (clientSockfd == -1) {
-        perror("Erro ao aceitar a conexão do cliente");
-        exit(1);
-    }
-
-    // Recebendo a imagem do capturador
-    int screen_width, screen_height;
-    if (recv(clientSockfd, &screen_width, sizeof(screen_width), 0) == -1 ||
-        recv(clientSockfd, &screen_height, sizeof(screen_height), 0) == -1) {
-        perror("Erro ao receber a largura e a altura da imagem");
-        exit(1);
-    }
-
-    int image_size = screen_width * screen_height * 4;
-    unsigned char* data = (unsigned char*)malloc(image_size);
-    if (recv(clientSockfd, data, image_size, 0) == -1) {
-        perror("Erro ao receber a imagem");
-        exit(1);
-    }
-
-    // Exibindo a imagem recebida
-    Display* display = XOpenDisplay(NULL);
+static void captureScreen(unsigned char *buffer) {
+    Display *display = XOpenDisplay(NULL);
     Window root = DefaultRootWindow(display);
+    XImage *image = XGetImage(display, root, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, AllPlanes, ZPixmap);
 
-    XImage* image = XCreateImage(display, DefaultVisual(display, 0), DefaultDepth(display, 0),
-                                 ZPixmap, 0, (char*)data, screen_width, screen_height, 32, 0);
+    memcpy(buffer, image->data, BUFFER_SIZE);
 
-    XPutImage(display, root, DefaultGC(display, 0), image, 0, 0, 0, 0, screen_width, screen_height);
-    XFlush(display);
-
-    // Aguardando um tempo para visualizar a imagem
-    sleep(5);
-
-    // Liberando recursos
     XDestroyImage(image);
     XCloseDisplay(display);
-    close(clientSockfd);
-    close(sockfd);
+}
+
+static int send_via_socket(char *buffer, size_t length)
+{
+    struct sockaddr_in server;
+    int ret;
+
+    memset(&server, 0, sizeof(struct sockaddr_in));
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // Envio para localhost
+
+    ret = sock_create_kern(&init_net, AF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
+    if (ret < 0)
+    {
+        printk(KERN_ERR "Erro ao criar o socket\n");
+        return ret;
+    }
+
+    ret = kernel_connect(sock, (struct sockaddr *)&server, sizeof(struct sockaddr_in), 0);
+    if (ret < 0)
+    {
+        printk(KERN_ERR "Erro ao conectar ao servidor de destino\n");
+        sock_release(sock);
+        return ret;
+    }
+
+    ret = kernel_sendmsg(sock, &msg, 1, len);
+    if (ret < 0)
+    {
+        printk(KERN_ERR "Erro ao enviar dados via socket\n");
+    }
+
+    kernel_sock_shutdown(sock, SHUT_RDWR);
+    sock_release(sock);
+
+    return ret;
+}
+
+static int __init screenshot_module_init(void)
+{
+    char buffer[BUFFER_SIZE];
+    int ret;
+
+    ret = capture_screen(buffer, sizeof(buffer));
+    if (ret < 0)
+    {
+        printk(KERN_ERR "Erro ao capturar a tela\n");
+        return ret;
+    }
+
+    ret = send_via_socket(buffer, strlen(buffer));
+    if (ret < 0)
+    {
+        printk(KERN_ERR "Erro ao enviar via socket\n");
+        return ret;
+    }
 
     return 0;
 }
+
+static void __exit screenshot_module_exit(void)
+{
+    // Limpeza e liberação de recursos, se necessário
+}
+
+module_init(screenshot_module_init);
+module_exit(screenshot_module_exit);

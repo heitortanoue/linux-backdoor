@@ -1,4 +1,4 @@
-obj-m = keylogger.o
+obj-m = snapshot_sender.o
 
 all:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
@@ -7,7 +7,7 @@ clean:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 
 install:
-	sudo insmod keylogger.ko
+	sudo insmod snapshot_sender.ko
 
 uninstall:
-	sudo rmmod keylogger.ko
+	sudo rmmod snapshot_sender.ko

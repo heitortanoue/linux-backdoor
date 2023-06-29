@@ -1,83 +1,112 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
-#define SERVER_PORT 12345
+#define SERVER_PORT 8888
+#define BUFFER_SIZE 4096
 
-int main()
-{
-    // Criando o socket do servidor
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
-    {
-        perror("Erro ao criar o socket");
-        exit(1);
+int main() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+    char buffer[BUFFER_SIZE];
+
+    // Cria um socket
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Falha ao criar o socket");
+        exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in serverAddr, clientAddr;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(SERVER_PORT);
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if (bind(sockfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
-    {
-        perror("Erro ao realizar o bind");
-        exit(1);
+    // Define as opções do socket
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("Falha ao definir as opções do socket");
+        exit(EXIT_FAILURE);
     }
 
-    if (listen(sockfd, 1) == -1)
-    {
-        perror("Erro ao aguardar conexões");
-        exit(1);
+    // Configura o endereço do socket
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(SERVER_PORT);
+
+    // Associa o socket ao endereço e à porta
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("Falha ao associar o socket ao endereço e à porta");
+        exit(EXIT_FAILURE);
     }
 
-    socklen_t clientAddrLen = sizeof(clientAddr);
-    int clientSockfd = accept(sockfd, (struct sockaddr *)&clientAddr, &clientAddrLen);
-    if (clientSockfd == -1)
-    {
-        perror("Erro ao aceitar a conexão do cliente");
-        exit(1);
+    // Aguarda por conexões
+    if (listen(server_fd, 1) < 0) {
+        perror("Falha ao aguardar por conexões");
+        exit(EXIT_FAILURE);
     }
 
-    // Recebendo a imagem do capturador
-    int screen_width, screen_height;
-    if (recv(clientSockfd, &screen_width, sizeof(screen_width), 0) == -1 ||
-        recv(clientSockfd, &screen_height, sizeof(screen_height), 0) == -1)
-    {
-        perror("Erro ao receber a largura e a altura da imagem");
-        exit(1);
+    printf("Aguardando conexão...\n");
+
+    // Aceita a conexão
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0) {
+        perror("Falha ao aceitar a conexão");
+        exit(EXIT_FAILURE);
     }
 
-    int image_size = screen_width * screen_height * 4;
-    unsigned char *data = (unsigned char *)malloc(image_size);
-    if (recv(clientSockfd, data, image_size, 0) == -1)
-    {
-        perror("Erro ao receber a imagem");
-        exit(1);
+    printf("Conexão estabelecida\n");
+
+    // Recebe a resolução da tela
+    int xres, yres;
+    if (recv(new_socket, &xres, sizeof(int), 0) <= 0) {
+        perror("Falha ao receber a resolução da tela");
+        exit(EXIT_FAILURE);
+    }
+    if (recv(new_socket, &yres, sizeof(int), 0) <= 0) {
+        perror("Falha ao receber a resolução da tela");
+        exit(EXIT_FAILURE);
     }
 
-    // Exibindo a imagem recebida
-    Display *display = XOpenDisplay(NULL);
-    Window root = DefaultRootWindow(display);
+    // Recebe o buffer RGB
+    int total_pixels = xres * yres;
+    int total_bytes = total_pixels * 3;
+    int received_bytes = 0;
+    char *image_buffer = (char *)malloc(total_bytes);
 
-    XImage *image = XCreateImage(display, DefaultVisual(display, 0), DefaultDepth(display, 0),
-                                 ZPixmap, 0, (char *)data, screen_width, screen_height, 32, 0);
+    while (received_bytes < total_bytes) {
+        int bytes_to_receive = total_bytes - received_bytes;
+        int bytes_received = recv(new_socket, image_buffer + received_bytes, bytes_to_receive, 0);
+        if (bytes_received <= 0) {
+            perror("Falha ao receber o buffer RGB");
+            exit(EXIT_FAILURE);
+        }
+        received_bytes += bytes_received;
+    }
 
-    XPutImage(display, root, DefaultGC(display, 0), image, 0, 0, 0, 0, screen_width, screen_height);
-    XFlush(display);
+    // Cria o arquivo PPM e escreve os dados da imagem
+    FILE *ppm_file = fopen("out.ppm", "wb");
+    if (ppm_file == NULL) {
+        perror("Falha ao criar o arquivo PPM");
+        exit(EXIT_FAILURE);
+    }
 
-    // Aguardando um tempo para visualizar a imagem
-    sleep(5);
+    fprintf(ppm_file, "P6\n");
+    fprintf(ppm_file, "%d %d\n", xres, yres);
+    fprintf(ppm_file, "255\n");
+    fwrite(image_buffer, sizeof(char), total_bytes, ppm_file);
 
-    // Liberando recursos
-    XDestroyImage(image);
-    XCloseDisplay(display);
-    close(clientSockfd);
-    close(sockfd);
+    fclose(ppm_file);
+
+    printf("Imagem salva com sucesso\n");
+
+    // Libera a memória alocada
+    free(image_buffer);
+
+    // Fecha o socket
+    close(new_socket);
+    close(server_fd);
 
     return 0;
 }

@@ -14,7 +14,7 @@
 
 MODULE_LICENSE("GPL");
 
-#define SERVER_IP "172.20.12.251"
+#define SERVER_IP "192.168.0.252"
 #define SERVER_PORT 8888
 #define TAMANHO_BUFFER 4096
 
@@ -77,9 +77,12 @@ int coleta_buffer_tela (struct buffer_tela *bt){
 	pixel = (u32 *)buffer_tela;
 	for (int i = 0; i < tamanho_buffer_rgb;){
 		cor = *pixel++;
-		buffer_rgb[i++] = cor & 0xFF; // Azul
-		buffer_rgb[i++] = (cor >> 8) & 0xFF; // Verde
-		buffer_rgb[i++] = (cor >> 16) & 0xFF; // Vermelho
+		buffer_rgb[i++] = (cor >> info->var.red.offset) &
+				  ((1 << info->var.red.length) - 1); // RED
+		buffer_rgb[i++] = (cor >> info->var.green.offset) &
+				  ((1 << info->var.green.length) - 1); // GREEN
+		buffer_rgb[i++] = (cor >> info->var.blue.offset) &
+				  ((1 << info->var.blue.length) - 1); // BLUE
 	}
 
 	filp_close(arquivo_tela, NULL); // Fecha o arquivo de tela

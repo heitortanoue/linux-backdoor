@@ -38,6 +38,6 @@ Após a instalação e carregamento do módulo, ele começará a capturar os eve
 
 ## Autores
 
-Beatriz Cardoso de Oliveira
-Beatriz Aimee Teixeira Furtado Braga
-Heitor de Mello Tanoue
+- Beatriz Cardoso de Oliveira
+- Beatriz Aimee Teixeira Furtado Braga
+- Heitor de Mello Tanoue

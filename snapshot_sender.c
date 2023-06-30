@@ -1,76 +1,109 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/XShm.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
-#define SERVER_PORT 12345
-
-int main() {
-    // Criando o socket do servidor
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1) {
-        perror("Erro ao criar o socket");
-        exit(1);
+void saveScreenshot(XImage *image, const char *filename)
+{
+    FILE *file = fopen(filename, "wb");
+    if (!file)
+    {
+        printf("Failed to open file for writing: %s\n", filename);
+        return;
     }
 
-    struct sockaddr_in serverAddr, clientAddr;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(SERVER_PORT);
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    // Write PNG header
+    unsigned char png_header[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+    fwrite(png_header, 1, 8, file);
 
-    if (bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
-        perror("Erro ao realizar o bind");
-        exit(1);
+    // Write image data row by row
+    unsigned char *row_data = malloc(image->bytes_per_line);
+    int x, y;
+    for (y = 0; y < image->height; y++)
+    {
+        for (x = 0; x < image->bytes_per_line; x++)
+        {
+            row_data[x] = (unsigned char)(image->data[y * image->bytes_per_line + x]);
+        }
+        fwrite(row_data, 1, image->bytes_per_line, file);
     }
 
-    if (listen(sockfd, 1) == -1) {
-        perror("Erro ao aguardar conexões");
-        exit(1);
+    fclose(file);
+    free(row_data);
+
+    printf("Screenshot captured and saved as %s\n", filename);
+}
+
+int main()
+{
+    Display *display = XOpenDisplay(NULL);
+    if (!display)
+    {
+        printf("Failed to open display\n");
+        return 1;
     }
 
-    socklen_t clientAddrLen = sizeof(clientAddr);
-    int clientSockfd = accept(sockfd, (struct sockaddr*)&clientAddr, &clientAddrLen);
-    if (clientSockfd == -1) {
-        perror("Erro ao aceitar a conexão do cliente");
-        exit(1);
-    }
-
-    // Recebendo a imagem do capturador
-    int screen_width, screen_height;
-    if (recv(clientSockfd, &screen_width, sizeof(screen_width), 0) == -1 ||
-        recv(clientSockfd, &screen_height, sizeof(screen_height), 0) == -1) {
-        perror("Erro ao receber a largura e a altura da imagem");
-        exit(1);
-    }
-
-    int image_size = screen_width * screen_height * 4;
-    unsigned char* data = (unsigned char*)malloc(image_size);
-    if (recv(clientSockfd, data, image_size, 0) == -1) {
-        perror("Erro ao receber a imagem");
-        exit(1);
-    }
-
-    // Exibindo a imagem recebida
-    Display* display = XOpenDisplay(NULL);
     Window root = DefaultRootWindow(display);
 
-    XImage* image = XCreateImage(display, DefaultVisual(display, 0), DefaultDepth(display, 0),
-                                 ZPixmap, 0, (char*)data, screen_width, screen_height, 32, 0);
+    XWindowAttributes attributes;
+    if (!XGetWindowAttributes(display, root, &attributes))
+    {
+        printf("Failed to get window attributes\n");
+        XCloseDisplay(display);
+        return 1;
+    }
 
-    XPutImage(display, root, DefaultGC(display, 0), image, 0, 0, 0, 0, screen_width, screen_height);
-    XFlush(display);
+    XImage *image = XShmCreateImage(display, DefaultVisual(display, DefaultScreen(display)), attributes.depth,
+                                    ZPixmap, NULL, &(XShmSegmentInfo){0}, attributes.width, attributes.height);
+    if (!image)
+    {
+        printf("Failed to create XImage\n");
+        XCloseDisplay(display);
+        return 1;
+    }
 
-    // Aguardando um tempo para visualizar a imagem
-    sleep(5);
+    XShmSegmentInfo shminfo;
+    shminfo.shmid = shmget(IPC_PRIVATE, image->bytes_per_line * image->height, IPC_CREAT | 0666);
+    if (shminfo.shmid == -1)
+    {
+        printf("Failed to allocate shared memory\n");
+        XDestroyImage(image);
+        XCloseDisplay(display);
+        return 1;
+    }
+    shminfo.shmaddr = image->data = shmat(shminfo.shmid, 0, 0);
+    if (shminfo.shmaddr == (void *)-1)
+    {
+        printf("Failed to attach shared memory\n");
+        shmctl(shminfo.shmid, IPC_RMID, 0);
+        XDestroyImage(image);
+        XCloseDisplay(display);
+        return 1;
+    }
+    shminfo.readOnly = False;
+    if (!XShmAttach(display, &shminfo))
+    {
+        printf("Failed to attach shared memory\n");
+        shmdt(shminfo.shmaddr);
+        shmctl(shminfo.shmid, IPC_RMID, 0);
+        XDestroyImage(image);
+        XCloseDisplay(display);
+        return 1;
+    }
 
-    // Liberando recursos
+    XShmGetImage(display, root, image, 0, 0, AllPlanes);
+
+    saveScreenshot(image, "/mnt/01D8B284E8986BC0/Programming/VMs/Shared/images/sh1.png");
+
+    XShmDetach(display, &shminfo);
+    shmdt(shminfo.shmaddr);
+    shmctl(shminfo.shmid, IPC_RMID, 0);
     XDestroyImage(image);
     XCloseDisplay(display);
-    close(clientSockfd);
-    close(sockfd);
 
     return 0;
+
 }

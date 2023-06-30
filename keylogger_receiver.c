@@ -9,7 +9,7 @@
 #define SERVER_PORT 8888
 #define BUFFER_SIZE 1024
 
-void printMessage(char *message, char* color, int omit_date)
+void printMessage(char *message, char *color, int omit_date)
 {
     time_t current_time = time(NULL);
     struct tm *local_time = localtime(&current_time);
@@ -18,14 +18,19 @@ void printMessage(char *message, char* color, int omit_date)
 
     char default_color[] = "\033[0m";
     // if there is no color, print the message without color
-    if (color == NULL) {
-        if (omit_date == 1) {
+    if (color == NULL)
+    {
+        if (omit_date == 1)
+        {
             printf("%s\n", message);
-        } else {
+        }
+        else
+        {
             printf("\033[0;30m[%s] %s%s\n", date_string, default_color, message);
         }
     }
-    else {
+    else
+    {
         if (omit_date == 1)
             printf("%s%s%s\n", color, message, default_color);
         else
@@ -108,14 +113,6 @@ int main()
             // Valid character
             if (converted != NULL)
             {
-                // If enter pressed, print the received string
-                // if (buffer[0] == 28)
-                // {
-                //     printMessage(received_string, NULL, 0);
-                //     strcpy(received_string, "");
-                //     string_length = 0;
-                // }
-                // else
                 if (buffer[0] == 57)
                 {
                     strncpy(received_string + string_length, " ", BUFFER_SIZE - string_length - 1);
@@ -154,7 +151,7 @@ int main()
             exit(EXIT_FAILURE);
         }
 
-        printf("Connection closed\n");
+        printMessage("Connection closed", "\033[0;33m", 1);
         close(client_sockfd);
     }
 

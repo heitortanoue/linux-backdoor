@@ -40,7 +40,7 @@ Após a instalação e carregamento do módulo, ele começará a capturar os eve
 
 - Beatriz Cardoso de Oliveira - 12566400.
 - Beatriz Aimee Teixeira Furtado Braga - 12547934.
-- Heitor de Mello Tanoue - 12547260.
+- Heitor Tanoue de Mello - 12547260.
 
 ## Versões Anteriores (Deprecated)
 
